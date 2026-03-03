@@ -20,7 +20,7 @@ module ram_1r1w_sync
    logic [$clog2(DEPTH_P) - 1 : 0] rd_addr_r;
 
    initial begin
-      // this is only because UART module refuses to process X inputs
+      //  since UART source/sink testbenches refuses to process Z/X inputs
       `ifndef SYNTHESIS
       if (ZERO_INIT) begin
          for (int i = 0; i < DEPTH_P; i++) begin

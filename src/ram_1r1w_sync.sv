@@ -19,19 +19,19 @@ module ram_1r1w_sync
    logic [WIDTH_P - 1 : 0] mem[DEPTH_P - 1 : 0];
    logic [$clog2(DEPTH_P) - 1 : 0] rd_addr_r;
 
-   // this is only because UART module refuses to process X inputs
    initial begin
-      if (SIGMOID_INIT_P) begin
-         $readmemh({`HEXPATH, "sigmoid.hex"}, mem);
-      end
-
-`ifndef SYNTHESIS
+      // this is only because UART module refuses to process X inputs
+      `ifndef SYNTHESIS
       if (ZERO_INIT) begin
          for (int i = 0; i < DEPTH_P; i++) begin
             mem[i] = '0;
          end
       end
-`endif
+      `endif
+      if (SIGMOID_INIT_P) begin
+         $readmemh({`HEXPATH, "sigmoid.hex"}, mem);
+      end
+
    end
 
    assign rd_data_o = mem[rd_addr_r];

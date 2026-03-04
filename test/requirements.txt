@@ -1,2 +1,5 @@
 pytest==8.4.2
 cocotb==2.0.1
+cocotbext-axi==0.1.26
+cocotbext-uart==0.1.4
+numpy==2.2.6

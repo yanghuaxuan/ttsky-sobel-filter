@@ -24,7 +24,7 @@ project:
     - "fifo_1r1w.sv"
     - "hsv.sv"
     - "mag.sv"
-    - "ram_1r1w.sv"
+    - "ram_1r1w_sync.sv"
     - "rgb2gray.sv"
     - "sobel.sv"
     - "uart_axis.sv"

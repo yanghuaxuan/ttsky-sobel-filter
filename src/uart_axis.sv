@@ -1,7 +1,10 @@
 module uart_axis
   #(parameter example_p = 0
-   ,parameter linewidth_px_p = 16) // Does nothing, just an example. You may use it, extend it, or ignore it.
-  (input [0:0] clk_i // 25 MHz Clock
+   ,parameter linewidth_px_p = 16
+   ,parameter clock_freq_mhz_p = 25
+   ,parameter baud_rate_p = 115200
+   )
+  (input [0:0] clk_i 
   ,input [0:0] reset_i
 
   ,input [0:0] rx_serial_i
@@ -22,11 +25,7 @@ module uart_axis
 
    localparam        data_to_narrow_lp = hsv_out_width_lp;
 
-   // In my soltion, these wires are data coming from (tx), and going
-   // to (rx) the UART module. You may pick your own alternate naming
-   // scheme.
-   localparam int BAUD = 115200;
-   localparam [15:0] prescale  =  25000000 / (BAUD * 8);
+   localparam [15:0] prescale  =  25e6 / (baud_rate_p * 8);
    // localparam [15:0] prescale  =  27;
 
    wire [data_width_lp-1:0] m_axis_uart_tdata_w;

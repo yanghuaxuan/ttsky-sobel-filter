@@ -14,9 +14,13 @@ module uart_axis
 
    localparam [31:0] data_width_lp = 8; // Keep this constant. Treat UART as an 8-bit bus, output.
    localparam        sobel_out_width_lp = (data_width_lp * 2) * 2; // sobel streams gx and gy, totaling to 4 bytes
+   localparam        mag_in_width_lp = data_width_lp * 2;
+   localparam        mag_out_width_lp = data_width_lp * 2;
    localparam        data_widened_lp = 24; // r, g, b
-   localparam        data_to_narrow_lp = sobel_out_width_lp;
    localparam        data_narrowed_lp = 8;
+   localparam        hsv_out_width_lp = 16;
+
+   localparam        data_to_narrow_lp = hsv_out_width_lp;
 
    // In my soltion, these wires are data coming from (tx), and going
    // to (rx) the UART module. You may pick your own alternate naming
@@ -25,36 +29,40 @@ module uart_axis
    localparam [15:0] prescale  =  25000000 / (BAUD * 8);
    // localparam [15:0] prescale  =  27;
 
-   wire [data_width_lp-1:0] m_axis_uart_tdata;
-   wire       m_axis_uart_tvalid;
-   // wire       m_axis_uart_tready;
+   wire [data_width_lp-1:0] m_axis_uart_tdata_w;
+   wire       m_axis_uart_tvalid_w;
+   wire       s_s_axis_uart_tready_w;
 
-   // wire [data_width_lp-1:0] s_axis_uart_tdata;
-   // wire       s_axis_uart_tvalid;
-   wire       s_axis_uart_tready;
+   wire [data_widened_lp - 1:0] m_axis_widener_tdata_w;
+   wire       m_axis_widener_tvalid_w;
+   wire       s_axis_widener_tready_w;
 
-   wire [data_widened_lp-1:0] m_axis_widener_tdata;
-   // wire [data_width_lp-1:0] s_axis_widener_tdata;
-   wire       m_axis_widener_tvalid;
-   wire       m_axis_widener_tkeep;
-   wire       s_axis_widener_tready;
+   wire [data_narrowed_lp - 1:0] m_axis_narrower_tdata_w;
+   wire       m_axis_narrower_tvalid_w;
+   wire       s_axis_narrower_tready_w;
 
-   wire [data_width_lp-1:0] m_axis_narrower_tdata;
-   wire       m_axis_narrower_tvalid;
-   wire       s_axis_narrower_tready;
+   wire       fifo_comb_killer_ready_o_w;
+   wire       fifo_comb_killer_valid_o_w;
+   wire [sobel_out_width_lp - 1:0] fifo_comb_killer_data_o_w;
 
-   wire       fifo_ready_o;
-   wire       fifo_valid_o;
-   wire [sobel_out_width_lp - 1:0] fifo_data_o;
+   wire                       rgb_ready_o_w;
+   wire                       rgb_valid_o_w;
+   wire [data_width_lp - 1:0] rgb_gray_o_w;
 
-   wire                       rgb_ready_o;
-   wire                       rgb_valid_o;
-   wire [data_width_lp - 1:0] rgb_gray_o;
+   wire [sobel_out_width_lp - 1:0] sobel_data_o_w;
+   wire       sobel_valid_o_w;
+   wire       sobel_ready_o_w;
 
-   wire [sobel_out_width_lp - 1:0] sobel_data_o;
-   wire       sobel_valid_o;
-   wire       sobel_ready_o;
-   
+   wire       mag_valid_o_w;
+   wire       mag_ready_o_w;
+   wire [mag_out_width_lp - 1:0] mag_out_o_w;
+   wire [data_width_lp * 2 - 1:0] mag_gx_o_w;
+   wire [data_width_lp * 2 - 1:0] mag_gy_o_w;
+
+   wire                          hsv_valid_o_w;
+   wire                          hsv_ready_o_w;
+   wire [hsv_out_width_lp - 1:0] hsv_data_o_w;
+
    logic [5:1] led_r = '0;
 
    // debug LEDs
@@ -63,11 +71,9 @@ module uart_axis
       if (reset_i) begin
          led_r[5:1] <= '0;
       end else begin
-         if (m_axis_widener_tdata == {8'h03, 8'h20, 8'h06, 8'h12}) begin
-            led_r[5:1] <= '1;
-         end
-         if (m_axis_widener_tdata == {8'hee, 8'hff, 8'hc0, 8'hc0}) begin
-            led_r[5:1] <= '0;
+         led_r[5:1] <= '0;
+         if (m_axis_uart_tvalid_w) begin
+            led_r[5:1] <= 5'b1000;
          end
       end
    end
@@ -75,23 +81,16 @@ module uart_axis
    uart #(.DATA_WIDTH(data_width_lp))
    uart_inst1 (
                         // Outputs
-                        .s_axis_tready  (s_axis_uart_tready),
-                        .m_axis_tdata   (m_axis_uart_tdata),
-                        .m_axis_tvalid  (m_axis_uart_tvalid),
+                        .s_axis_tready  (s_s_axis_uart_tready_w),
+                        .m_axis_tdata   (m_axis_uart_tdata_w),
+                        .m_axis_tvalid  (m_axis_uart_tvalid_w),
                         .txd            (tx_serial_o),
-                        .tx_busy        (),
-                        .rx_busy        (),
-                        .rx_overrun_error(),
-                        .rx_frame_error (),
                         // Inputs
                         .clk            (clk_i),
                         .rst            (reset_i),
-                        // .s_axis_tdata   (m_axis_uart_tdata),
-                        // .s_axis_tvalid  (s_axis_uart_tvalid),
-                        // .m_axis_tready  (m_axis_uart_tready),
-                        .s_axis_tdata(m_axis_narrower_tdata),
-                        .s_axis_tvalid(m_axis_narrower_tvalid),
-                        .m_axis_tready  (s_axis_widener_tready),
+                        .s_axis_tdata(m_axis_narrower_tdata_w),
+                        .s_axis_tvalid(m_axis_narrower_tvalid_w),
+                        .m_axis_tready  (s_axis_widener_tready_w),
                         .rxd            (rx_serial_i),
                         .prescale       (prescale));
 
@@ -108,67 +107,98 @@ module uart_axis
        .USER_ENABLE                     (0))
    adapter_widener (
                     // Outputs
-                    .s_axis_tready      (s_axis_widener_tready),
-                    .m_axis_tdata       (m_axis_widener_tdata),
-                    .m_axis_tkeep       (m_axis_widener_tkeep),
-                    .m_axis_tvalid      (m_axis_widener_tvalid),
-                    // .s_axis_tlast       (0),
+                    .s_axis_tready      (s_axis_widener_tready_w),
+                    .m_axis_tdata       (m_axis_widener_tdata_w),
+                    .m_axis_tkeep       (),
+                    .m_axis_tvalid      (m_axis_widener_tvalid_w),
                     // Inputs
                     .clk                (clk_i),
                     .rst                (reset_i),
-                    .s_axis_tdata       (m_axis_uart_tdata),
+                    .s_axis_tdata       (m_axis_uart_tdata_w),
                     .s_axis_tkeep       ('0),
-                    .s_axis_tvalid      (m_axis_uart_tvalid),
+                    .s_axis_tvalid      (m_axis_uart_tvalid_w),
                     .s_axis_tlast       ('0),
-                    .m_axis_tready      (rgb_ready_o));
+                    .m_axis_tready      (rgb_ready_o_w));
 
    // rgb2gray
    rgb2gray #()
      rgb_inst
        (
         // Outputs
-        .ready_o                        (rgb_ready_o),
-        .valid_o                        (rgb_valid_o),
-        .gray_o                         (rgb_gray_o),
+        .ready_o                        (rgb_ready_o_w),
+        .valid_o                        (rgb_valid_o_w),
+        .gray_o                         (rgb_gray_o_w),
         // Inputs
         .clk_i                          (clk_i),
         .reset_i                        (reset_i),
-        .valid_i                        (m_axis_widener_tvalid),
-        .red_i                          (m_axis_widener_tdata[7:0]),
-        .blue_i                         (m_axis_widener_tdata[23:16]),
-        .green_i                        (m_axis_widener_tdata[15:8]),
-        .ready_i                        (sobel_ready_o));
+        .valid_i                        (m_axis_widener_tvalid_w),
+        .red_i                          (m_axis_widener_tdata_w[7:0]),
+        .blue_i                         (m_axis_widener_tdata_w[23:16]),
+        .green_i                        (m_axis_widener_tdata_w[15:8]),
+        .ready_i                        (sobel_ready_o_w));
 
    // sobel
    sobel #(.linewidth_px_p(linewidth_px_p))
     sobel_inst
       (
        // Outputs
-       .ready_o                         (sobel_ready_o),
-       .valid_o                         (sobel_valid_o),
-       .data_o                          (sobel_data_o),
+       .ready_o                         (sobel_ready_o_w),
+       .valid_o                         (sobel_valid_o_w),
+       .data_o                          (sobel_data_o_w),
        // Inputs
        .clk_i                           (clk_i),
        .reset_i                         (reset_i),
-       .valid_i                         (rgb_valid_o),
-       .data_i                          (rgb_gray_o),
-       .ready_i                         (fifo_ready_o));
+       .valid_i                         (rgb_valid_o_w),
+       .data_i                          (rgb_gray_o_w),
+       .ready_i                         (fifo_comb_killer_ready_o_w));
 
-   // narrower takes its sweet time to TX back + uart & adapter does not respect ready_i; put FIFO here
+   // was only meant to help out the narrower so the ready chain does not propagate to the widener, which does not respect ready signals; now also a hack to decouple combinational chain from sobel -> mag
    fifo_1r1w #(.width_p(sobel_out_width_lp), .depth_log2_p(8))
-     fifo_inst
+     fifo_comb_killer
        (
         // Outputs
-        .ready_o                        (fifo_ready_o),
-        .valid_o                        (fifo_valid_o),
-        .data_o                         (fifo_data_o),
+        .ready_o                        (fifo_comb_killer_ready_o_w),
+        .valid_o                        (fifo_comb_killer_valid_o_w),
+        .data_o                         (fifo_comb_killer_data_o_w),
         // Inputs
         .clk_i                          (clk_i),
         .reset_i                        (reset_i),
-        .data_i                         (sobel_data_o),
-        .valid_i                        (sobel_valid_o),
-        .ready_i                        (s_axis_narrower_tready));
+        .data_i                         (sobel_data_o_w),
+        .valid_i                        (sobel_valid_o_w),
+        .ready_i                        (mag_ready_o_w));
 
+
+   mag #(.width_in_p(mag_in_width_lp))
+   mag_inst(
+            // Outputs
+            .ready_o                    (mag_ready_o_w),
+            .valid_o                    (mag_valid_o_w),
+            .mag_o                      (mag_out_o_w),
+            .gx_o                       (mag_gx_o_w), // for hsv
+            .gy_o                       (mag_gy_o_w), // for hsv
+            // Inputs
+            .clk_i                      (clk_i),
+            .reset_i                    (reset_i),
+            .valid_i                    (fifo_comb_killer_valid_o_w),
+            .gx_i                       (fifo_comb_killer_data_o_w[15:0]),
+            .gy_i                       (fifo_comb_killer_data_o_w[31:16]),
+            .ready_i                    (hsv_ready_o_w));
+
+   hsv #()
+     hsv_inst
+       (
+        // Outputs
+        .ready_o                        (hsv_ready_o_w),
+        .valid_o                        (hsv_valid_o_w),
+        .hv_o                           (hsv_data_o_w),
+        // Inputs
+        .clk_i                          (clk_i),
+        .reset_i                        (reset_i),
+        .valid_i                        (mag_valid_o_w),
+        .mag_i                          (mag_out_o_w),
+        .gx_i                           (mag_gx_o_w),
+        .gy_i                           (mag_gy_o_w),
+        .ready_i                        (s_axis_narrower_tready_w));
 
    // narrower
     axis_adapter
@@ -183,20 +213,17 @@ module uart_axis
                     .USER_ENABLE                     (0))
        adapater_narrower (
                     // Outputs
-                    .s_axis_tready      (s_axis_narrower_tready),
-                    .m_axis_tdata       (m_axis_narrower_tdata),
-                    // .m_axis_tkeep       (),
-                    .m_axis_tvalid      (m_axis_narrower_tvalid),
-                    // .s_axis_tlast       (0),
+                    .s_axis_tready      (s_axis_narrower_tready_w),
+                    .m_axis_tdata       (m_axis_narrower_tdata_w),
+                    .m_axis_tvalid      (m_axis_narrower_tvalid_w),
                     // Inputs
                     .clk                (clk_i),
                     .rst                (reset_i),
-                    .s_axis_tdata       (fifo_data_o),
+                    .s_axis_tdata       (hsv_data_o_w),
                     .s_axis_tkeep       ('1),
-                    .s_axis_tvalid      (fifo_valid_o),
+                    .s_axis_tvalid      (hsv_valid_o_w),
                     .s_axis_tlast       ('0),
-                    // .m_axis_tready      (sobel_ready_o));
-                    .m_axis_tready      (s_axis_uart_tready));
+                    .m_axis_tready      (s_s_axis_uart_tready_w));
    
 endmodule
 
